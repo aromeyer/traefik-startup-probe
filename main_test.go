@@ -95,7 +95,7 @@ func TestRouterCounter(t *testing.T) {
 
 	assert.False(t, r.ServerInitialized)
 
-	r.IsServerInitialized()
+	r.UpdateServerState()
 	assert.False(t, r.ServerInitialized)
 
 	err = r.countRoutersPerProvider(client)
@@ -112,6 +112,6 @@ func TestRouterCounter(t *testing.T) {
 
 	assert.False(t, r.ServerInitialized)
 
-	r.IsServerInitialized()
+	r.UpdateServerState()
 	assert.True(t, r.ServerInitialized)
 }
