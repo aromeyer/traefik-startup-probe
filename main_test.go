@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -72,7 +71,6 @@ func TestRouterCounter(t *testing.T) {
    }
 }
 	`
-	fmt.Printf("json: %s", json)
 	client := &MockClient{
 		MockDo: func(*http.Request) (*http.Response, error) {
 			return &http.Response{
@@ -88,20 +86,32 @@ func TestRouterCounter(t *testing.T) {
 		t.Error(err)
 		return
 	}
+
 	assert.Equal(t, 3, r.CountPerProvider["internal"])
 	assert.Equal(t, 0, r.PreviousCountPerProvider["internal"])
 
 	assert.Equal(t, 1, r.CountPerProvider["docker"])
 	assert.Equal(t, 0, r.PreviousCountPerProvider["docker"])
 
+	assert.False(t, r.ServerInitialized)
+
+	r.IsServerInitialized()
+	assert.False(t, r.ServerInitialized)
+
 	err = r.countRoutersPerProvider(client)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+
 	assert.Equal(t, 3, r.CountPerProvider["internal"])
 	assert.Equal(t, 3, r.PreviousCountPerProvider["internal"])
 
 	assert.Equal(t, 1, r.CountPerProvider["docker"])
 	assert.Equal(t, 1, r.PreviousCountPerProvider["docker"])
+
+	assert.False(t, r.ServerInitialized)
+
+	r.IsServerInitialized()
+	assert.True(t, r.ServerInitialized)
 }

@@ -78,6 +78,24 @@ func (r *RouterCounter) countRoutersPerProvider(client HTTPClient) error {
 	return nil
 }
 
+func (r *RouterCounter) IsServerInitialized() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	countProviderSuccess := 0
+	for name, count := range r.CountPerProvider {
+		if count == r.PreviousCountPerProvider[name] {
+			countProviderSuccess += 1
+		}
+	}
+
+	if countProviderSuccess == len(r.CountPerProvider) {
+		r.ServerInitialized = true
+	}
+
+	return r.ServerInitialized
+}
+
 func main() {
 	// start with Service Unavailable
 	code := 503
@@ -108,14 +126,7 @@ func main() {
 			routerCounter.mu.RLock()
 			defer routerCounter.mu.RUnlock()
 
-			countProviderSuccess := 0
-			for name, count := range routerCounter.CountPerProvider {
-				if count == routerCounter.PreviousCountPerProvider[name] {
-					countProviderSuccess += 1
-				}
-			}
-			if countProviderSuccess == len(routerCounter.CountPerProvider) {
-				routerCounter.ServerInitialized = true
+			if routerCounter.IsServerInitialized() {
 				code = 200
 			}
 		}
