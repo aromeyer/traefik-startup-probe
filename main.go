@@ -98,7 +98,7 @@ func (r *RouterCounter) IsServerInitialized() bool {
 
 func main() {
 	// start with Service Unavailable
-	code := 503
+	code := http.StatusServiceUnavailable
 
 	routerCounter := NewRouterCounter()
 
@@ -127,7 +127,7 @@ func main() {
 			defer routerCounter.mu.RUnlock()
 
 			if routerCounter.IsServerInitialized() {
-				code = 200
+				code = http.StatusOK
 			}
 		}
 
