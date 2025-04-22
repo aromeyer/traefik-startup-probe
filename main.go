@@ -15,6 +15,12 @@ const (
 	INTERNAL_PROVIDER_NAME = "internal"
 )
 
+var (
+	LOG_LEVEL                = getEnvWithDefault("LOG_LEVEL", "info")
+	TRAEFIK_RAWDATA_ENDPOINT = getEnvWithDefault("TRAEFIK_RAWDATA_ENDPOINT", "http://localhost:8080/api/rawdata")
+	HTTP_SERVER_ADDR         = getEnvWithDefault("HTTP_SERVER_ADDR", ":8083")
+)
+
 type RawData struct {
 	Routers map[string]Router `json:"routers"`
 }
@@ -38,16 +44,11 @@ func NewRouterCounter() *RouterCounter {
 	}
 }
 
-// HTTPClient interface abstracts the HTTP client for testing purposes.
-type HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
 // countRoutersPerProvider updates the router counts per provider.
 func (r *RouterCounter) countRoutersPerProvider(client HTTPClient) error {
 	var rawData RawData
 
-	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/api/rawdata", nil)
+	req, err := http.NewRequest(http.MethodGet, TRAEFIK_RAWDATA_ENDPOINT, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -103,18 +104,26 @@ func (r *RouterCounter) UpdateServerState() {
 	}
 }
 
+func getEnvWithDefault(key, defaultValue string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+
+	return defaultValue
+}
+
+// HTTPClient interface abstracts the HTTP client for testing purposes.
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 func main() {
 	// start with Service Unavailable
 	code := http.StatusServiceUnavailable
 
 	routerCounter := NewRouterCounter()
 
-	logLevelString, ok := os.LookupEnv("LOG_LEVEL")
-	if !ok {
-		logLevelString = "info"
-	}
-
-	logLevel, err := log.ParseLevel(logLevelString)
+	logLevel, err := log.ParseLevel(LOG_LEVEL)
 	if err != nil {
 		logLevel = log.DebugLevel
 	}
@@ -150,5 +159,5 @@ func main() {
 
 	})
 
-	log.Fatal(http.ListenAndServe(":8083", nil))
+	log.Fatal(http.ListenAndServe(HTTP_SERVER_ADDR, nil))
 }
