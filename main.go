@@ -104,6 +104,7 @@ func (r *RouterCounter) UpdateServerState() {
 	}
 }
 
+// set variable value from env var with default
 func getEnvWithDefault(key, defaultValue string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
@@ -118,8 +119,6 @@ type HTTPClient interface {
 }
 
 func main() {
-	// start with Service Unavailable
-	code := http.StatusServiceUnavailable
 
 	routerCounter := NewRouterCounter()
 
@@ -133,9 +132,17 @@ func main() {
 
 	client := &http.Client{}
 
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/healthz", createHealthzHandler(routerCounter, client))
+
+	log.Fatal(http.ListenAndServe(HTTP_SERVER_ADDR, nil))
+}
+
+func createHealthzHandler(routerCounter *RouterCounter, client HTTPClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code := http.StatusServiceUnavailable
+
 		if !routerCounter.ServerInitialized {
-			if err = routerCounter.countRoutersPerProvider(client); err == nil {
+			if err := routerCounter.countRoutersPerProvider(client); err == nil {
 				log.Debug(fmt.Sprintf("routerCounter: %v (previous: %v)", routerCounter.CountPerProvider, routerCounter.PreviousCountPerProvider))
 
 				routerCounter.UpdateServerState()
@@ -145,19 +152,18 @@ func main() {
 			} else {
 				log.Error(err)
 			}
+		} else { // once successfully initialized the state doesn't change
+			code = http.StatusOK
 		}
 
 		log.Debug(fmt.Sprintf("serverInitialized: %v", routerCounter.ServerInitialized))
 
 		w.WriteHeader(code)
-		_, err = w.Write([]byte(http.StatusText(code)))
+		_, err := w.Write([]byte(http.StatusText(code)))
 		if err != nil {
 			log.Error(err)
 		}
 
 		log.Info(fmt.Sprintf("%v %v %v", r.URL, code, r.UserAgent()))
-
-	})
-
-	log.Fatal(http.ListenAndServe(HTTP_SERVER_ADDR, nil))
+	}
 }

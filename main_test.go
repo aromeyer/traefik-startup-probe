@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,6 +20,53 @@ type MockClient struct {
 func (m *MockClient) Do(req *http.Request) (*http.Response, error) {
 	return m.MockDo(req)
 }
+func TestHealthzHandler(t *testing.T) {
+	mockClient := &MockClient{
+		MockDo: func(req *http.Request) (*http.Response, error) {
+			json := `{
+				"routers": {
+					"api@internal": {},
+					"backend@docker": {}
+				}
+			}`
+			return &http.Response{
+				StatusCode: 200,
+				Body:       io.NopCloser(bytes.NewReader([]byte(json))),
+			}, nil
+		},
+	}
+
+	r := NewRouterCounter()
+	handler := createHealthzHandler(r, mockClient)
+
+	// First request: server not initialized
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	fmt.Printf("%v / %v - %t\n", r.PreviousCountPerProvider, r.CountPerProvider, r.ServerInitialized)
+
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "Expected Service Unavailable before initialization")
+	assert.Equal(t, "Service Unavailable", rec.Body.String(), "Expected Service Unavailable message before initialization")
+
+	// Simulate server initialization with internal provider data
+	err := r.countRoutersPerProvider(mockClient)
+	assert.NoError(t, err)
+
+	// Ensure internal provider has routers to meet initialization criteria
+	r.UpdateServerState()
+
+	fmt.Printf("%v / %v - %t\n", r.PreviousCountPerProvider, r.CountPerProvider, r.ServerInitialized)
+
+	// Second request: server initialized
+	req = httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code, "Expected OK after initialization")
+	assert.Equal(t, "OK", rec.Body.String(), "Expected OK message after initialization")
+}
+
 func TestRouterCounter(t *testing.T) {
 	json := `
 {
@@ -71,7 +120,7 @@ func TestRouterCounter(t *testing.T) {
    }
 }
 	`
-	client := &MockClient{
+	mockClient := &MockClient{
 		MockDo: func(*http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
@@ -81,7 +130,7 @@ func TestRouterCounter(t *testing.T) {
 	}
 
 	r := NewRouterCounter()
-	err := r.countRoutersPerProvider(client)
+	err := r.countRoutersPerProvider(mockClient)
 	if err != nil {
 		t.Error(err)
 		return
@@ -98,7 +147,7 @@ func TestRouterCounter(t *testing.T) {
 	r.UpdateServerState()
 	assert.False(t, r.ServerInitialized)
 
-	err = r.countRoutersPerProvider(client)
+	err = r.countRoutersPerProvider(mockClient)
 	if err != nil {
 		t.Error(err)
 		return
