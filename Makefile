@@ -5,6 +5,13 @@ DEFAULT_APP_PORT ?= 8083
 RUN ?= .*
 PKG ?= ./...
 .PHONY: test
+
+build:	## go build
+	go build -o app *.go
+
+run:	## run go app
+	LOG_LEVEL=DEBUG go run $(RUN)
+
 test: ## Run tests in local environment
 	golangci-lint run --timeout=5m $(PKG)
 	go test -cover -run=$(RUN) $(PKG)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -18,32 +19,89 @@ type MockClient struct {
 func (m *MockClient) Do(req *http.Request) (*http.Response, error) {
 	return m.MockDo(req)
 }
-func TestCountFrontends(t *testing.T) {
+func TestRouterCounter(t *testing.T) {
 	json := `
-		{
-			"kubernetes": {
-				"backends": {},
-				"frontends": {
-					"frontend1.example.local/": {},
-					"frontend2.example.local/": {}
-				}
-			}
-		}
+{
+   "routers":{
+      "api@internal":{
+         "entryPoints":[
+            "traefik"
+         ],
+         "service":"api@internal"
+      },
+      "backend@docker":{
+         "entryPoints":[
+            "websecure"
+         ],
+         "service":"backend"
+      },
+      "dashboard@internal":{
+         "entryPoints":[
+            "traefik"
+         ],
+         "service":"dashboard@internal"
+      },
+      "prometheus@internal":{
+         "entryPoints":[
+            "traefik"
+         ],
+         "service":"prometheus@internal"
+      }
+   },
+   "middlewares":{
+      "dashboard_redirect@internal":{
+
+      },
+      "dashboard_stripprefix@internal":{
+
+      }
+   },
+   "services":{
+      "api@internal":{
+
+      },
+      "dashboard@internal":{
+
+      },
+      "noop@internal":{
+
+      },
+      "prometheus@internal":{
+
+      }
+   }
+}
 	`
-	resp := io.NopCloser(bytes.NewReader([]byte(json)))
+	fmt.Printf("json: %s", json)
 	client := &MockClient{
 		MockDo: func(*http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       resp,
+				Body:       io.NopCloser(bytes.NewReader([]byte(json))),
 			}, nil
 		},
 	}
 
-	result, err := countFrontends(client)
+	r := NewRouterCounter()
+	err := r.countRoutersPerProvider(client)
 	if err != nil {
 		t.Error(err)
 		return
 	}
-	assert.Equal(t, 2, result)
+	assert.Equal(t, 3, r.CountPerProvider["internal"])
+	assert.Equal(t, 0, r.PreviousCountPerProvider["internal"])
+
+	assert.Equal(t, 1, r.CountPerProvider["docker"])
+	assert.Equal(t, 0, r.PreviousCountPerProvider["docker"])
+
+	err = r.countRoutersPerProvider(client)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	assert.Equal(t, 3, r.CountPerProvider["internal"])
+	assert.Equal(t, 3, r.PreviousCountPerProvider["internal"])
+
+	assert.Equal(t, 1, r.CountPerProvider["docker"])
+	assert.Equal(t, 1, r.PreviousCountPerProvider["docker"])
 }

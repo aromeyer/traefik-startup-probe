@@ -5,57 +5,84 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 )
 
-type Providers struct {
-	Kubernetes Kubernetes `json:"kubernetes"`
+type RawData struct {
+	Routers map[string]Router `json:"routers"`
 }
 
-type Kubernetes struct {
-	Backends  map[string]interface{} `json:"backends"`
-	Frontends Frontends              `json:"frontends"`
+type Router struct {
 }
 
-type Frontends map[string]interface{}
+type RouterCounter struct {
+	CountPerProvider         map[string]int
+	PreviousCountPerProvider map[string]int
+	ServerInitialized        bool
+	mu                       sync.RWMutex
+}
+
+func NewRouterCounter() *RouterCounter {
+	return &RouterCounter{
+		CountPerProvider:         map[string]int{},
+		PreviousCountPerProvider: map[string]int{},
+		ServerInitialized:        false,
+	}
+}
 
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-func countFrontends(client HTTPClient) (int, error) {
+func (r *RouterCounter) countRoutersPerProvider(client HTTPClient) error {
 
-	var providers Providers
+	var rawData RawData
 
-	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/api/providers", nil)
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/api/rawdata", nil)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	defer resp.Body.Close()
 
-	err = json.NewDecoder(resp.Body).Decode(&providers)
+	err = json.NewDecoder(resp.Body).Decode(&rawData)
 
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	return len(providers.Kubernetes.Frontends), nil
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.PreviousCountPerProvider = map[string]int{}
+	for providerName, count := range r.CountPerProvider {
+		r.PreviousCountPerProvider[providerName] = count
+	}
+
+	r.CountPerProvider = map[string]int{}
+	for name := range rawData.Routers {
+		lastIndex := strings.LastIndex(name, "@")
+		if lastIndex > 0 {
+			providerName := name[lastIndex+1:]
+			r.CountPerProvider[providerName] += 1
+		}
+	}
+
+	return nil
 }
 
 func main() {
 	// start with Service Unavailable
 	code := 503
 
-	curFrontends := 0
-	prevFrontends := 0
-	serverInitialized := false
+	routerCounter := NewRouterCounter()
 
 	logLevelString, ok := os.LookupEnv("LOG_LEVEL")
 	if !ok {
@@ -73,20 +100,27 @@ func main() {
 	client := &http.Client{}
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if !serverInitialized {
-			if curFrontends, err = countFrontends(client); err != nil {
+		if !routerCounter.ServerInitialized {
+			if err = routerCounter.countRoutersPerProvider(client); err != nil {
 				log.Error(err)
 			}
-			log.Debug(fmt.Sprintf("frontends: %v (previous: %v)", curFrontends, prevFrontends))
-			if curFrontends != 0 && curFrontends == prevFrontends {
+			log.Debug(fmt.Sprintf("routerCounter: %v (previous: %v)", routerCounter.CountPerProvider, routerCounter.PreviousCountPerProvider))
+			routerCounter.mu.RLock()
+			defer routerCounter.mu.RUnlock()
+
+			countProviderSuccess := 0
+			for name, count := range routerCounter.CountPerProvider {
+				if count == routerCounter.PreviousCountPerProvider[name] {
+					countProviderSuccess += 1
+				}
+			}
+			if countProviderSuccess == len(routerCounter.CountPerProvider) {
+				routerCounter.ServerInitialized = true
 				code = 200
-				serverInitialized = true
 			}
 		}
 
-		prevFrontends = curFrontends
-
-		log.Debug(fmt.Sprintf("serverInitialized: %v", serverInitialized))
+		log.Debug(fmt.Sprintf("serverInitialized: %v", routerCounter.ServerInitialized))
 
 		w.WriteHeader(code)
 		_, err = w.Write([]byte(http.StatusText(code)))
@@ -99,5 +133,4 @@ func main() {
 	})
 
 	log.Fatal(http.ListenAndServe(":8083", nil))
-
 }
