@@ -29,7 +29,7 @@ func TestHealthzHandler(t *testing.T) {
 				}
 			}`
 			return &http.Response{
-				StatusCode: 200,
+				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(bytes.NewReader([]byte(json))),
 			}, nil
 		},
@@ -111,7 +111,7 @@ func TestRouterCounter(t *testing.T) {
 	mockClient := &MockClient{
 		MockDo: func(*http.Request) (*http.Response, error) {
 			return &http.Response{
-				StatusCode: 200,
+				StatusCode: http.StatusOK,
 				Body:       io.NopCloser(bytes.NewReader([]byte(json))),
 			}, nil
 		},
