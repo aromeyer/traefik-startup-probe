@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,8 +42,6 @@ func TestHealthzHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-
-	fmt.Printf("%v / %v - %t\n", r.PreviousCountPerProvider, r.CurrentCountPerProvider, r.ServerInitialized)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "Expected Service Unavailable before initialization")
 	assert.Equal(t, "Service Unavailable", rec.Body.String(), "Expected Service Unavailable message before initialization")

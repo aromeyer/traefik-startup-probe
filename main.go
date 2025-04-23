@@ -194,6 +194,6 @@ func createHealthzHandler(routerCounter *RouterCounter, client HTTPClient) http.
 			log.Error(err)
 		}
 
-		log.Info(fmt.Sprintf("%v %v %v", r.URL, code, r.UserAgent()))
+		log.Infof("%v %v %v", r.URL, code, r.UserAgent())
 	}
 }
