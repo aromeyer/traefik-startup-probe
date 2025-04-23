@@ -44,19 +44,10 @@ func TestHealthzHandler(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	fmt.Printf("%v / %v - %t\n", r.PreviousCountPerProvider, r.CountPerProvider, r.ServerInitialized)
+	fmt.Printf("%v / %v - %t\n", r.PreviousCountPerProvider, r.CurrentCountPerProvider, r.ServerInitialized)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "Expected Service Unavailable before initialization")
 	assert.Equal(t, "Service Unavailable", rec.Body.String(), "Expected Service Unavailable message before initialization")
-
-	// Simulate server initialization with internal provider data
-	err := r.countRoutersPerProvider(mockClient)
-	assert.NoError(t, err)
-
-	// Ensure internal provider has routers to meet initialization criteria
-	r.UpdateServerState()
-
-	fmt.Printf("%v / %v - %t\n", r.PreviousCountPerProvider, r.CountPerProvider, r.ServerInitialized)
 
 	// Second request: server initialized
 	req = httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -136,15 +127,15 @@ func TestRouterCounter(t *testing.T) {
 		return
 	}
 
-	assert.Equal(t, 3, r.CountPerProvider["internal"])
+	assert.Equal(t, 3, r.CurrentCountPerProvider["internal"])
 	assert.Equal(t, 0, r.PreviousCountPerProvider["internal"])
 
-	assert.Equal(t, 1, r.CountPerProvider["docker"])
+	assert.Equal(t, 1, r.CurrentCountPerProvider["docker"])
 	assert.Equal(t, 0, r.PreviousCountPerProvider["docker"])
 
 	assert.False(t, r.ServerInitialized)
 
-	r.UpdateServerState()
+	r.UpdateServerStatus()
 	assert.False(t, r.ServerInitialized)
 
 	err = r.countRoutersPerProvider(mockClient)
@@ -153,14 +144,14 @@ func TestRouterCounter(t *testing.T) {
 		return
 	}
 
-	assert.Equal(t, 3, r.CountPerProvider["internal"])
+	assert.Equal(t, 3, r.CurrentCountPerProvider["internal"])
 	assert.Equal(t, 3, r.PreviousCountPerProvider["internal"])
 
-	assert.Equal(t, 1, r.CountPerProvider["docker"])
+	assert.Equal(t, 1, r.CurrentCountPerProvider["docker"])
 	assert.Equal(t, 1, r.PreviousCountPerProvider["docker"])
 
 	assert.False(t, r.ServerInitialized)
 
-	r.UpdateServerState()
+	r.UpdateServerStatus()
 	assert.True(t, r.ServerInitialized)
 }

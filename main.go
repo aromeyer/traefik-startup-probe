@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -28,25 +29,36 @@ type RawData struct {
 type Router struct {
 }
 
+//
+// RouterCounter
+//
+
 type RouterCounter struct {
-	CountPerProvider         map[string]int
+	CurrentCountPerProvider  map[string]int
 	PreviousCountPerProvider map[string]int
-	ServerInitialized        bool
 	mu                       sync.RWMutex
+	ServerInitialized        bool
+	NCalls                   int
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 // NewRouterCounter initializes a new RouterCounter instance.
 func NewRouterCounter() *RouterCounter {
 	return &RouterCounter{
-		CountPerProvider:         map[string]int{},
+		CurrentCountPerProvider:  map[string]int{},
 		PreviousCountPerProvider: map[string]int{},
 		ServerInitialized:        false,
+		CreatedAt:                time.Now(),
+		UpdatedAt:                time.Now(),
 	}
 }
 
 // countRoutersPerProvider updates the router counts per provider.
 func (r *RouterCounter) countRoutersPerProvider(client HTTPClient) error {
 	var rawData RawData
+
+	r.NCalls++
 
 	req, err := http.NewRequest(http.MethodGet, TRAEFIK_RAWDATA_ENDPOINT, nil)
 	if err != nil {
@@ -68,41 +80,47 @@ func (r *RouterCounter) countRoutersPerProvider(client HTTPClient) error {
 
 	// Backup previous counts
 	r.PreviousCountPerProvider = map[string]int{}
-	for providerName, count := range r.CountPerProvider {
+	for providerName, count := range r.CurrentCountPerProvider {
 		r.PreviousCountPerProvider[providerName] = count
 	}
 
 	// Reset and update current counts
-	r.CountPerProvider = map[string]int{}
+	r.CurrentCountPerProvider = map[string]int{}
 	for name := range rawData.Routers {
 		if lastIndex := strings.LastIndex(name, "@"); lastIndex > 0 {
 			providerName := name[lastIndex+1:]
-			r.CountPerProvider[providerName]++
+			r.CurrentCountPerProvider[providerName]++
 		}
 	}
+
+	r.UpdatedAt = time.Now()
 
 	return nil
 }
 
-// IsServerInitialized checks if the server is fully initialized.
-func (r *RouterCounter) UpdateServerState() {
+// checks if the server is fully initialized.
+func (r *RouterCounter) UpdateServerStatus() {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	countProviderSuccess := 0
-	for name, count := range r.CountPerProvider {
+	for name, count := range r.CurrentCountPerProvider {
 		if count == r.PreviousCountPerProvider[name] {
 			countProviderSuccess++
 		}
 	}
 
 	// All providers are loaded and internal provider is not empty
-	if countProviderSuccess == len(r.CountPerProvider) && r.CountPerProvider[INTERNAL_PROVIDER_NAME] > 0 {
+	if countProviderSuccess == len(r.CurrentCountPerProvider) && r.CurrentCountPerProvider[INTERNAL_PROVIDER_NAME] > 0 {
 		r.ServerInitialized = true
 	} else {
 		r.ServerInitialized = false
 	}
 }
+
+//
+// Utils
+//
 
 // set variable value from env var with default
 func getEnvWithDefault(key, defaultValue string) string {
@@ -118,6 +136,10 @@ type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+//
+// main
+//
+
 func main() {
 
 	routerCounter := NewRouterCounter()
@@ -130,7 +152,9 @@ func main() {
 
 	log.Info("startup probe server started")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
 
 	http.HandleFunc("/healthz", createHealthzHandler(routerCounter, client))
 
@@ -143,20 +167,26 @@ func createHealthzHandler(routerCounter *RouterCounter, client HTTPClient) http.
 
 		if !routerCounter.ServerInitialized {
 			if err := routerCounter.countRoutersPerProvider(client); err == nil {
-				log.Debug(fmt.Sprintf("routerCounter: %v (previous: %v)", routerCounter.CountPerProvider, routerCounter.PreviousCountPerProvider))
-
-				routerCounter.UpdateServerState()
+				routerCounter.UpdateServerStatus()
 				if routerCounter.ServerInitialized {
 					code = http.StatusOK
 				}
 			} else {
 				log.Error(err)
 			}
-		} else { // once successfully initialized the state doesn't change
+		} else { // once successfully initialized the status doesn't change
 			code = http.StatusOK
 		}
 
-		log.Debug(fmt.Sprintf("serverInitialized: %v", routerCounter.ServerInitialized))
+		log.Debugf(
+			"routerCounter - ServerInitialized: %t - nCalls: %d - current: %v (previous: %v) - elapsed: %s - initDuration: %s",
+			routerCounter.ServerInitialized,
+			routerCounter.NCalls,
+			routerCounter.CurrentCountPerProvider,
+			routerCounter.PreviousCountPerProvider,
+			time.Since(routerCounter.CreatedAt),
+			routerCounter.UpdatedAt.Sub(routerCounter.CreatedAt),
+		)
 
 		w.WriteHeader(code)
 		_, err := w.Write([]byte(http.StatusText(code)))
