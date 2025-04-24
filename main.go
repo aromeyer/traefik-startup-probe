@@ -12,14 +12,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	INTERNAL_PROVIDER_NAME = "internal"
-)
-
 var (
-	LOG_LEVEL                = getEnvWithDefault("LOG_LEVEL", "info")
-	TRAEFIK_RAWDATA_ENDPOINT = getEnvWithDefault("TRAEFIK_RAWDATA_ENDPOINT", "http://localhost:8080/api/rawdata")
-	HTTP_SERVER_ADDR         = getEnvWithDefault("HTTP_SERVER_ADDR", ":8083")
+	LOG_LEVEL                  = getEnvWithDefault("LOG_LEVEL", "info")
+	TRAEFIK_RAWDATA_ENDPOINT   = getEnvWithDefault("TRAEFIK_RAWDATA_ENDPOINT", "http://localhost:8080/api/rawdata")
+	HTTP_SERVER_ADDR           = getEnvWithDefault("HTTP_SERVER_ADDR", ":8083")
+	TRAEFIK_PROVIDER_NOT_EMPTY = getEnvStrSliceWithDefault("TRAEFIK_PROVIDER_NOT_EMPTY", []string{"internal"})
 )
 
 type RawData struct {
@@ -111,9 +108,20 @@ func (r *RouterCounter) UpdateServerStatus() {
 	}
 
 	// All providers are loaded and internal provider is not empty
-	if countProviderSuccess == len(r.CurrentCountPerProvider) && r.CurrentCountPerProvider[INTERNAL_PROVIDER_NAME] > 0 {
-		r.ServerInitialized = true
+	if countProviderSuccess == len(r.CurrentCountPerProvider) {
+		foundEmpty := false
+		for _, p := range TRAEFIK_PROVIDER_NOT_EMPTY {
+			if v, ok := r.CurrentCountPerProvider[p]; !ok || v == 0 {
+				foundEmpty = true
+				log.Debugf("provider with name %s not found or empty - CurrentCountPerProvider: %v", p, r.CurrentCountPerProvider)
+				break
+			}
+		}
+		if !foundEmpty {
+			r.ServerInitialized = true
+		}
 	} else {
+		log.Debugf("provider status list not yet stable (%d != %d)", countProviderSuccess, len(r.CurrentCountPerProvider))
 		r.ServerInitialized = false
 	}
 }
@@ -131,6 +139,14 @@ func getEnvWithDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
+func getEnvStrSliceWithDefault(key string, defaultValue []string) []string {
+	if v, ok := os.LookupEnv(key); ok {
+		return strings.Split(v, ",")
+	}
+
+	return defaultValue
+}
+
 // HTTPClient interface abstracts the HTTP client for testing purposes.
 type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -141,6 +157,7 @@ type HTTPClient interface {
 //
 
 func main() {
+	PrintConfig()
 
 	routerCounter := NewRouterCounter()
 
@@ -196,4 +213,13 @@ func createHealthzHandler(routerCounter *RouterCounter, client HTTPClient) http.
 
 		log.Infof("%v %v %v", r.URL, code, r.UserAgent())
 	}
+}
+
+func PrintConfig() {
+	log.Info("-- CONFIG")
+	log.Infof("LOG_LEVEL: %s", LOG_LEVEL)
+	log.Infof("HTTP_SERVER_ADDR: %s", HTTP_SERVER_ADDR)
+	log.Infof("TRAEFIK_RAWDATA_ENDPOINT: %s", TRAEFIK_RAWDATA_ENDPOINT)
+	log.Infof("TRAEFIK_PROVIDER_NOT_EMPTY: %s", TRAEFIK_PROVIDER_NOT_EMPTY)
+	log.Info("-- ")
 }

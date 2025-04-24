@@ -16,11 +16,11 @@ This has been tested on Traefik 3.3.6.
 1. Add the sidecar container to the Traefik deployment:
 
 ```yaml
-        - env:
-          - name: LOG_LEVEL
-            value: debug
+        - name: startup-probe
           image: registry.example.com/traefik-startup-probe:latest
-          name: startup-probe
+          env:
+            - name: LOG_LEVEL
+              value: debug
 ```
 
 2. Add a `startupProbe` to the traefik container:
@@ -32,7 +32,7 @@ This has been tested on Traefik 3.3.6.
             path: /healthz
             port: 8083
             scheme: HTTP
-          periodSeconds: 3
+          periodSeconds: 5
           successThreshold: 1
-          timeoutSeconds: 1
+          timeoutSeconds: 2
 ```
